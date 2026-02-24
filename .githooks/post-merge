@@ -1,0 +1,17 @@
+#!/bin/bash
+
+echo "🔄 Dotfiles update detected."
+echo "📄 Changed files:"
+
+git diff --name-status ORIG_HEAD HEAD
+
+echo ""
+echo "📦 Updating symlinks with 'stow -R .'..."
+
+stow -R .
+
+if [ $? -eq 0 ]; then
+    echo "✅ All symlinks successfully updated!"
+else
+    echo "❌ Error: Failed to update symlinks."
+fi
