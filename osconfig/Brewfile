@@ -1,0 +1,27 @@
+brew "bat"
+brew "eza"
+brew "fd"
+brew "fzf"
+brew "gum"
+brew "micro"
+brew "mise"
+brew "ripgrep"
+brew "starship"
+brew "zoxide"
+brew "rbw"
+
+# Ohhh looovely font
+cask "font-maple-mono-nf"
+
+flatpak "app.zen_browser.zen"
+flatpak "com.spotify.Client"
+flatpak "org.telegram.desktop"
+flatpak "dev.vencord.Vesktop"
+flatpak "com.bitwarden.desktop"
+flatpak "com.protonvpn.www"
+
+flatpak "it.mijorus.gearlever"
+flatpak "com.github.tchx84.Flatseal"
+flatpak "io.github.flattool.Warehouse"
+flatpak "io.github.kolunmi.Bazaar"
+flatpak "io.github.flattool.Ignition"
