@@ -1,14 +1,17 @@
 brew "bat"
 brew "eza"
 brew "fd"
-brew "fzf"
-brew "gum"
 brew "micro"
 brew "mise"
 brew "ripgrep"
 brew "starship"
 brew "zoxide"
-brew "rbw"
+brew "lazygit"
+brew "lazydocker"
+# brew "rbw"
+# brew "fzf"
+# brew "gum"
+
 
 # Ohhh looovely font
 cask "font-maple-mono-nf"
