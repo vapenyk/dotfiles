@@ -1,9 +1,0 @@
-[user]
-	name = Alexender Yatsenko
-	email = ayatsenkok@gmail.com
-[core]
-	editor = micro
-[init]
-	defaultBranch = main
-[include]
-	path = ~/.gitconfig_local
