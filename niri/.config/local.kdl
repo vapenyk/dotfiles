@@ -7,11 +7,6 @@ binds {
 
 }
 
-
-
-// ────────────── Input Configuration ──────────────
-// https://github.com/YaLTeR/niri/wiki/Configuration:-Input
-
 input {
     keyboard {
         xkb {

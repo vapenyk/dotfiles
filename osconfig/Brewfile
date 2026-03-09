@@ -1,30 +1,36 @@
-brew "bat"
-brew "eza"
-brew "fd"
-brew "micro"
-brew "mise"
-brew "ripgrep"
-brew "starship"
-brew "zoxide"
-brew "lazygit"
-brew "lazydocker"
-# brew "rbw"
-# brew "fzf"
-# brew "gum"
+tap 'vapenyk/homebrew-tap'
+tap 'ublue-os/homebrew-tap'
 
+# brew 'bat'
+# brew 'eza'
+# brew 'fd'
+brew 'micro'
+brew 'shellcheck'
+brew 'ripgrep'
+# brew 'zoxide'
+brew 'lazygit'
+brew 'lazydocker'
+brew 'starship'
+# brew 'rbw'
+brew 'fzf'
+brew 'libyaml'
+# brew 'gum'
+
+cask 'bitwarden-desktop-linux' # vapenyk
+cask 'brave-browser-linux' # vapenyk
+cask 'jetbrains-toolbox-linux' # ublue-os
+cask 'antigravity-linux' # ublue-os
 
 # Ohhh looovely font
-cask "font-maple-mono-nf"
+cask 'font-maple-mono-nf'
 
-flatpak "app.zen_browser.zen"
-flatpak "com.spotify.Client"
-flatpak "org.telegram.desktop"
-flatpak "dev.vencord.Vesktop"
-flatpak "com.bitwarden.desktop"
-flatpak "com.protonvpn.www"
+flatpak 'app.zen_browser.zen'
+flatpak 'org.telegram.desktop'
+flatpak 'dev.vencord.Vesktop'
+flatpak 'com.protonvpn.www'
 
-flatpak "it.mijorus.gearlever"
-flatpak "com.github.tchx84.Flatseal"
-flatpak "io.github.flattool.Warehouse"
-flatpak "io.github.kolunmi.Bazaar"
-flatpak "io.github.flattool.Ignition"
+flatpak 'it.mijorus.gearlever'
+flatpak 'com.github.tchx84.Flatseal'
+flatpak 'io.github.flattool.Warehouse'
+flatpak 'io.github.kolunmi.Bazaar'
+flatpak 'io.github.flattool.Ignition'
