@@ -5,7 +5,7 @@ set -euo pipefail
 # install-git-config.sh — Git configuration and SSH signing setup
 # =============================================================================
 # Usage: ./install-git-config.sh
-# Depends on: git, ssh-add, grep, mkdir, echo
+# Depends on: git, rbw, mkdir, echo
 #
 # Functions defined here:
 #   setup-git-config() — applies global Git settings and SSH signing
@@ -34,7 +34,7 @@ readonly MSG_SIGNERS="Setting up $CFG_ALLOWED_SIGNERS_FILE..."
 readonly MSG_SUCCESS="Global Git configuration and SSH signing setup applied."
 
 # --- Warnings / errors --------------------------------------------------------
-readonly MSG_WARN_NO_KEY="Warning: No SSH key found in ssh-agent ending with '$CFG_SSH_KEY_SUFFIX'."
+readonly MSG_WARN_NO_KEY="Warning: No SSH key found in Bitwarden with name '$CFG_SSH_KEY_SUFFIX'."
 readonly MSG_WARN_INCOMPLETE="         SSH signing configuration might be incomplete."
 readonly MSG_ERR_NAME_EMPTY="Error: Username cannot be empty."
 readonly MSG_ERR_EMAIL_INVALID="Error: Email format is invalid (expected user@domain.tld)."
@@ -136,7 +136,7 @@ setup-git-config() {
 
     # --- SSH signing ----------------------------------------------------------
     local signing_key
-    signing_key=$(ssh-add -L 2>/dev/null | grep "${CFG_SSH_KEY_SUFFIX}$" || true)
+    signing_key=$(rbw get "$CFG_SSH_KEY_SUFFIX" 2>/dev/null || true)
 
     if [[ -z "$signing_key" ]]; then
         log "$MSG_WARN_NO_KEY"
