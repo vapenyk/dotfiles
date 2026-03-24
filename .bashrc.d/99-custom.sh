@@ -75,6 +75,7 @@ bind '"\\e[3;5~": kill-word'          # Ctrl+Delete    — delete word forward
 # ALIASES
 # =============================================================================
 
+alias zj="zellij"
 alias ll='ls -lh'
 alias la='ls -lAh'
 alias lt='ls -lRh'
@@ -90,7 +91,7 @@ mkcd() { mkdir -p "$1" && cd "$1"; }  # create directory and cd into it
 # SSH
 # =============================================================================
 
-export SSH_AUTH_SOCK="$HOME/.bitwarden-ssh-agent.sock"
+export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/rbw/ssh-agent-socket"
 
 # =============================================================================
 # FZF

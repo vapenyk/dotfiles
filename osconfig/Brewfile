@@ -15,6 +15,7 @@ brew 'starship'
 brew 'rbw'
 brew 'fzf'
 brew 'libyaml'
+brew 'zellij'
 # brew 'gum'
 
 # cask 'bitwarden-desktop-linux' # vapenyk
