@@ -75,6 +75,7 @@ bind '"\\e[3;5~": kill-word'          # Ctrl+Delete    — delete word forward
 # ALIASES
 # =============================================================================
 
+alias yay='paru'
 alias zj="zellij"
 alias ll='ls -lh'
 alias la='ls -lAh'
@@ -108,6 +109,6 @@ fi
 # STARSHIP_SHELL is exported by starship on init — skip if already initialized
 # (e.g. via /etc/profile.d/90-aurora-starship.sh on Aurora/uBlue).
 
-if command -v starship &>/dev/null && [[ -z "${STARSHIP_SHELL:-}" ]]; then
+if command -v starship &>/dev/null; then
     eval "$(starship init bash)"
 fi

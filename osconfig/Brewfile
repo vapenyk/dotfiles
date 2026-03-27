@@ -1,38 +1,35 @@
-# tap 'vapenyk/homebrew-tap'
-# tap 'ublue-os/homebrew-tap'
-
-
+brew 'mise' 
 brew 'bat'
-# brew 'eza'
-brew 'fd'
-# brew 'micro'
-brew 'shellcheck'
-brew 'ripgrep'
-# brew 'zoxide'
-brew 'lazygit'
-# brew 'lazydocker'
-brew 'starship'
-brew 'rbw'
-brew 'fzf'
-brew 'libyaml'
+brew 'shellcheck' 
+brew 'starship' #shell
+brew 'rbw' #bitwarden
+brew 'libyaml' #for ruby
 brew 'zellij'
-# brew 'gum'
+brew 'lazydocker' 
+#lazyvim starts
+brew 'tree-sitter-cli'
+brew 'lazygit'
+brew 'neovim'
+brew 'lua'
+brew 'luarocks'
+brew 'fzf'
+brew 'ripgrep'
+brew 'fd'
 
-# cask 'bitwarden-desktop-linux' # vapenyk
-# cask 'brave-browser-linux' # vapenyk
-# cask 'jetbrains-toolbox-linux' # ublue-os
-# cask 'antigravity-linux' # ublue-os
 
 # Ohhh looovely font
-# cask 'font-maple-mono-nf'
-# 
-# flatpak 'app.zen_browser.zen'
-# flatpak 'org.telegram.desktop'
-# flatpak 'dev.vencord.Vesktop'
-# flatpak 'com.protonvpn.www'
-# 
-# flatpak 'it.mijorus.gearlever'
-# flatpak 'com.github.tchx84.Flatseal'
-# flatpak 'io.github.flattool.Warehouse'
-# flatpak 'io.github.kolunmi.Bazaar'
-# flatpak 'io.github.flattool.Ignition'
+cask 'font-maple-mono-nf' #for code
+cask "font-rubik" #for system (KDE)
+ 
+flatpak 'org.telegram.desktop'
+flatpak 'dev.vencord.Vesktop'
+flatpak 'io.anytype.anytype' #private space
+flatpak 'md.obsidian.Obsidian' #open space
+flatpak 'com.protonvpn.www' 
+ 
+flatpak 'it.mijorus.gearlever'
+flatpak 'com.github.tchx84.Flatseal'
+flatpak 'io.github.flattool.Warehouse'
+flatpak 'io.github.kolunmi.Bazaar'
+flatpak 'io.github.flattool.Ignition'
+flatpak 'com.github.marhkb.Pods'
