@@ -1,0 +1,18 @@
+font-family = Maple Mono NF
+font-size = 14
+theme = Ayu
+background-opacity = 1.0
+window-decoration = none
+confirm-close-surface = false
+cursor-style = bar
+cursor-style-blink = true
+window-padding-x = 8
+window-padding-y = 8,0
+
+# Скрывать таббар когда одна вкладка (это дефолтное поведение, но явно):
+window-show-tab-bar = auto
+
+# Отключить звуковой белл:
+bell-features = no-audio
+
+gtk-tabs-location = bottom

@@ -1,11 +1,11 @@
-brew 'mise' 
+# brew 'mise'
 brew 'bat'
-brew 'shellcheck' 
+brew 'shellcheck'
 brew 'starship' #shell
-brew 'rbw' #bitwarden
+# brew 'rbw' #bitwarden
 brew 'libyaml' #for ruby
 brew 'zellij'
-brew 'lazydocker' 
+brew 'lazydocker'
 #lazyvim starts
 brew 'tree-sitter-cli'
 brew 'lazygit'
@@ -20,13 +20,15 @@ brew 'fd'
 # Ohhh looovely font
 cask 'font-maple-mono-nf' #for code
 cask "font-rubik" #for system (KDE)
- 
+
+
+# sudo flatpak mask org.freedesktop.Platform.openh264
 flatpak 'org.telegram.desktop'
 flatpak 'dev.vencord.Vesktop'
 flatpak 'io.anytype.anytype' #private space
 flatpak 'md.obsidian.Obsidian' #open space
-flatpak 'com.protonvpn.www' 
- 
+flatpak 'com.protonvpn.www'
+
 flatpak 'it.mijorus.gearlever'
 flatpak 'com.github.tchx84.Flatseal'
 flatpak 'io.github.flattool.Warehouse'
