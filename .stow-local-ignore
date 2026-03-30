@@ -23,5 +23,4 @@ _darcs
 ^/LICENSE.*
 ^/COPYING
 
-^/osconfig
-^/niri
+^/scripts
