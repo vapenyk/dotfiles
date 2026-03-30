@@ -16,6 +16,11 @@ stow --no-folding -R .
 metapac sync
 ```
 
+## screensaver
+
+tte • foot • swayidle (for niri integration).
+Idea was partially copied from @basecamp/omarchy and slightly modified so I could at least understand how it works. Edit the ASCII in `.local/screensaver/logo.txt`.
+
 ## update
 
 ```bash
