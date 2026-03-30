@@ -1,4 +1,4 @@
 #!/bin/bash
-# Launch screensaver only if screen is not already locked (mirror: pidof hyprlock check)
-pgrep -x swaylock >/dev/null && exit 0
+# Launch screensaver only if screen is not already locked
+dms ipc call lock isLocked 2>/dev/null | grep -q "true" && exit 0
 exec screensaver

@@ -7,8 +7,6 @@ Requisite=graphical-session.target
 ExecStart=/usr/bin/swayidle -w \
     timeout 150  'launch-screensaver' \
     timeout 151  'lock-screen' \
-    timeout 330  'niri msg action power-off-monitors' \
-        resume   'niri msg action power-on-monitors' \
     before-sleep 'lock-screen'
 Restart=on-failure
 
