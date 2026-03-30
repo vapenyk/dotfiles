@@ -68,6 +68,7 @@ packages = [
   "noctalia-qs",
 
   # AUR
+  "peazip-qt-bin",
   "helium-browser-bin",
   "jetbrains-toolbox",
   "visual-studio-code-bin",
