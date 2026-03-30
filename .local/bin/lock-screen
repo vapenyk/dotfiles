@@ -1,0 +1,4 @@
+#!/bin/bash
+# Kill screensaver then lock
+pkill -f "foot.*org.screensaver" 2>/dev/null
+dms ipc call lock lock

@@ -1,8 +1,11 @@
 [arch]
 packages = [
-  { name = "flatpak", hooks = {
-    after_install = ["sudo", "flatpak", "mask", "org.freedesktop.Platform.openh264"],
-  } },
+  { name = "flatpak", hooks = { after_install = [
+    "sudo",
+    "flatpak",
+    "mask",
+    "org.freedesktop.Platform.openh264"
+  ] } },
 ]
 
 [flatpak]
