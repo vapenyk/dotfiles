@@ -28,7 +28,7 @@ packages = [
 
   # wayland core
   { name = "sddm", hooks = { after_install = ["sudo", "systemctl", "enable", "sddm"] } },
-  "niri",
+  "niri-git",
   "adw-gtk-theme",
   "gnome-keyring",
   "noto-fonts",
@@ -72,7 +72,7 @@ packages = [
   "jetbrains-toolbox",
   "visual-studio-code-bin",
   { name = "dms-shell-bin", hooks = { after_install = ["systemctl", "--user", "add-wants", "niri.service", "dms"] } },
-  "dsearch-bin",
+  { name = "dsearch-bin", hooks = { after_install = ["systemctl", "--user", "enable", "--now", "dsearch.service"] } },
   "qt6ct-kde",
   "maplemono-nf-unhinted",
   "uv"
