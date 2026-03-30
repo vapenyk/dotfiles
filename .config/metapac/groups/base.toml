@@ -27,7 +27,7 @@ packages = [
   "paru",
 
   # wayland core
-  { name = "sddm", hooks = { after_sync = ["sudo", "systemctl", "enable", "sddm"] } },
+  { name = "sddm", hooks = { after_install = ["sudo", "systemctl", "enable", "sddm"] } },
   "niri",
   "adw-gtk-theme",
   "gnome-keyring",
@@ -52,6 +52,7 @@ packages = [
   "qt6-multimedia-ffmpeg",
   "python",
   "cava",
+  "matugen",
   "kimageformats",
 
   # gui apps
@@ -70,7 +71,7 @@ packages = [
   "helium-browser-bin",
   "jetbrains-toolbox",
   "visual-studio-code-bin",
-  { name = "dms-shell-bin", hooks = { after_sync = ["systemctl", "--user", "add-wants", "niri.service", "dms"] } },
+  { name = "dms-shell-bin", hooks = { after_install = ["systemctl", "--user", "add-wants", "niri.service", "dms"] } },
   "dsearch-bin",
   "qt6ct-kde",
   "maplemono-nf-unhinted",

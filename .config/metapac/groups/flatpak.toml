@@ -1,16 +1,14 @@
 [arch]
 packages = [
-  "flatpak",
+  { name = "flatpak", hooks = {
+    after_install = ["flatpak", "remote-add", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"],
+    after_sync = ["sudo", "flatpak", "mask", "org.freedesktop.Platform.openh264"],
+  } },
 ]
 
 [flatpak]
 packages = [
-  {
-    name = "org.telegram.desktop",
-    hooks = {
-      before_sync = ["sudo", "flatpak", "mask", "org.freedesktop.Platform.openh264"]
-    }
-  },
+  "org.telegram.desktop",
   "dev.vencord.Vesktop",
   "io.anytype.anytype",
   "md.obsidian.Obsidian",
