@@ -1,22 +1,24 @@
 [arch]
 packages = [
   { name = "flatpak", hooks = {
-    after_install = ["flatpak", "remote-add", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"],
-    after_sync = ["sudo", "flatpak", "mask", "org.freedesktop.Platform.openh264"],
+    after_install = ["sudo", "flatpak", "mask", "org.freedesktop.Platform.openh264"],
   } },
 ]
 
 [flatpak]
+repos = [
+  { name = "system:flathub", options = { url = "https://dl.flathub.org/repo/flathub.flatpakrepo" } },
+]
 packages = [
-  "org.telegram.desktop",
-  "dev.vencord.Vesktop",
-  "io.anytype.anytype",
-  "md.obsidian.Obsidian",
-  "com.protonvpn.www",
-  "it.mijorus.gearlever",
-  "com.github.tchx84.Flatseal",
-  "io.github.flattool.Warehouse",
-  "io.github.kolunmi.Bazaar",
-  "io.github.flattool.Ignition",
-  "com.github.marhkb.Pods",
+  { name = "system:org.telegram.desktop", options = { remote = "flathub" } },
+  { name = "system:dev.vencord.Vesktop", options = { remote = "flathub" } },
+  { name = "system:io.anytype.anytype", options = { remote = "flathub" } },
+  { name = "system:md.obsidian.Obsidian", options = { remote = "flathub" } },
+  { name = "system:com.protonvpn.www", options = { remote = "flathub" } },
+  { name = "system:it.mijorus.gearlever", options = { remote = "flathub" } },
+  { name = "system:com.github.tchx84.Flatseal", options = { remote = "flathub" } },
+  { name = "system:io.github.flattool.Warehouse", options = { remote = "flathub" } },
+  { name = "system:io.github.kolunmi.Bazaar", options = { remote = "flathub" } },
+  { name = "system:io.github.flattool.Ignition", options = { remote = "flathub" } },
+  { name = "system:com.github.marhkb.Pods", options = { remote = "flathub" } },
 ]
