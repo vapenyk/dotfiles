@@ -1,0 +1,79 @@
+[arch]
+packages = [
+  # cli & core
+  "git",
+  "bat",
+  "shellcheck",
+  "starship",
+  "rbw",
+  "libyaml",
+  "zellij",
+  "lazygit",
+  "lazydocker",
+  "tree-sitter-cli",
+  "neovim",
+  "lua",
+  "luarocks",
+  "fzf",
+  "ripgrep",
+  "fd",
+  "mise",
+  "nano",
+  "nano-syntax-highlighting",
+  "paru",
+
+  # wayland core
+  { name = "sddm", hooks = { after_sync = ["systemctl", "enable", "sddm"] } },
+  "niri",
+  "adw-gtk-theme",
+  "gnome-keyring",
+  "noto-fonts",
+  "noto-fonts-emoji",
+  "wl-clipboard",
+  "wlsunset",
+  "xdg-desktop-portal-gnome",
+  "xdg-desktop-portal-gtk",
+  "xwayland-satellite",
+  "brightnessctl",
+  "wlr-randr",
+  "ddcutil",
+  "cliphist",
+  "wtype",
+  "swayidle",
+  "xdg-terminal-exec",
+
+  # graphics & multimedia
+  "imagemagick",
+  "ffmpeg",
+  "qt6-multimedia-ffmpeg",
+  "python",
+  "cava",
+  "kimageformats",
+
+  # gui apps
+  "foot",
+  "ghostty",
+  "zed",
+  "nautilus",
+  "nautilus-python",
+  "sushi",
+  "cups-pk-helper",
+
+  # shell / dms-shell deps
+  "noctalia-qs",
+
+  # AUR
+  "helium-browser-bin",
+  "jetbrains-toolbox",
+  "visual-studio-code-bin",
+  "dms-shell-bin",
+  "dsearch-bin",
+  "qt6ct-kde",
+  "maplemono-nf-unhinted",
+  "uv"
+]
+
+[uv]
+packages = [
+  "terminaltexteffects",
+]

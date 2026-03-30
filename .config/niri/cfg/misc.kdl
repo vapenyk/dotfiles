@@ -5,6 +5,7 @@
         ELECTRON_OZONE_PLATFORM_HINT "auto"
         QT_QPA_PLATFORM "wayland"
         QT_QPA_PLATFORMTHEME "gtk3"
+        QT_QPA_PLATFORMTHEME_QT6 "gtk3"
         QT_WAYLAND_DISABLE_WINDOWDECORATION "1"
         XDG_CURRENT_DESKTOP "niri"
         XDG_SESSION_TYPE "wayland"
@@ -16,10 +17,16 @@
     }
 
     debug {
-        // Allows notification actions and window activation from Noctalia.
+        // Allows notification actions and window activation from DMS (quickshell-based).
         honor-xdg-activation-with-invalid-serial
     }
 
     hotkey-overlay {
        skip-at-startup
+    }
+
+    // ─── DMS layer rules ───
+    layer-rule {
+        match namespace="^quickshell$"
+        place-within-backdrop true
     }

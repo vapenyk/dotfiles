@@ -1,0 +1,24 @@
+[arch]
+packages = [
+  "flatpak",
+]
+
+[flatpak]
+packages = [
+  {
+    name = "system:org.telegram.desktop",
+    hooks = {
+      before_sync = ["sudo", "flatpak", "mask", "org.freedesktop.Platform.openh264"]
+    }
+  },
+  "dev.vencord.Vesktop",
+  "io.anytype.anytype",
+  "md.obsidian.Obsidian",
+  "com.protonvpn.www",
+  "it.mijorus.gearlever",
+  "com.github.tchx84.Flatseal",
+  "io.github.flattool.Warehouse",
+  "io.github.kolunmi.Bazaar",
+  "io.github.flattool.Ignition",
+  "com.github.marhkb.Pods",
+]
