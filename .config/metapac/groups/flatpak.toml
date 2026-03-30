@@ -6,7 +6,7 @@ packages = [
 [flatpak]
 packages = [
   {
-    name = "system:org.telegram.desktop",
+    name = "org.telegram.desktop",
     hooks = {
       before_sync = ["sudo", "flatpak", "mask", "org.freedesktop.Platform.openh264"]
     }

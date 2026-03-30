@@ -1,7 +1,10 @@
 [arch]
 packages = [
   # cli & core
+  "base-devel",
   "git",
+  "stow",
+  "btop",
   "bat",
   "shellcheck",
   "starship",
@@ -12,6 +15,7 @@ packages = [
   "lazydocker",
   "tree-sitter-cli",
   "neovim",
+  "micro",
   "lua",
   "luarocks",
   "fzf",
@@ -23,7 +27,7 @@ packages = [
   "paru",
 
   # wayland core
-  { name = "sddm", hooks = { after_sync = ["systemctl", "enable", "sddm"] } },
+  { name = "sddm", hooks = { after_sync = ["sudo", "systemctl", "enable", "sddm"] } },
   "niri",
   "adw-gtk-theme",
   "gnome-keyring",
@@ -66,7 +70,7 @@ packages = [
   "helium-browser-bin",
   "jetbrains-toolbox",
   "visual-studio-code-bin",
-  "dms-shell-bin",
+  { name = "dms-shell-bin", hooks = { after_sync = ["systemctl", "--user", "add-wants", "niri.service", "dms"] } },
   "dsearch-bin",
   "qt6ct-kde",
   "maplemono-nf-unhinted",

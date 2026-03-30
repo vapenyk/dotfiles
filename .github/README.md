@@ -2,7 +2,7 @@
 
 git clone https://github.com/vapenyk/dotfiles.git ~/dotfiles && cd ~/dotfiles && git config core.hooksPath .githooks
 
-paru -S stow metapac uv
+paru -S stow metapac uv rbw
 stow -R .
 metapac sync
 

@@ -12,7 +12,7 @@
     }
 
     cursor {
-        xcursor-theme "capitaine-cursors"
+        // xcursor-theme "capitaine-cursors"
         hide-after-inactive-ms 5000
     }
 
