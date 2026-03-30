@@ -4,7 +4,7 @@ After=graphical-session.target
 Requisite=graphical-session.target
 
 [Service]
-ExecStart=/usr/bin/swayidle -w \
+ExecStart=/usr/bin/swayidle \
     timeout 150  'launch-screensaver' \
     timeout 151  'lock-screen' \
     before-sleep 'lock-screen'
