@@ -2,7 +2,7 @@
 binds {
 
     // ────────────── Keybindings ──────────────
-    // https://github.com/YaLTeR/niri/wiki/Configuration:-Key-Bindings
+    // https://github.com/niri-wm/niri/wiki/Configuration:-Key-Bindings
 
     // ─── dms (DankMaterialShell) keybinds ───
     // https://danklinux.com/docs/dankmaterialshell/keybinds-ipc

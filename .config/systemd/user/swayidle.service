@@ -5,9 +5,9 @@ Requisite=graphical-session.target
 
 [Service]
 ExecStart=/usr/bin/swayidle \
-    timeout 150  'launch-screensaver' \
-    timeout 151  'lock-screen' \
-    before-sleep 'lock-screen'
+    timeout 150  'dms-launch-screensaver' \
+    timeout 300  'dms-lock-screen' \
+    before-sleep 'dms-lock-screen'
 Restart=on-failure
 
 [Install]

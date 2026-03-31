@@ -23,5 +23,6 @@ packages = [
   { name = "system:io.github.flattool.Warehouse", options = { remote = "flathub" } },
   { name = "system:io.github.kolunmi.Bazaar", options = { remote = "flathub" } },
   { name = "system:io.github.flattool.Ignition", options = { remote = "flathub" } },
-  { name = "system:com.github.marhkb.Pods", options = { remote = "flathub" } },
+  { name = "system:org.gtk.Gtk3theme.adw-gtk3-dark", options = { remote = "flathub" } },
+  { name = "system:io.github.plrigaux.sysd-manager", options = { remote = "flathub" } },
 ]

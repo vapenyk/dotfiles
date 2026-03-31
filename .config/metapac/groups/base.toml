@@ -80,7 +80,6 @@ packages = [
   "noctalia-qs",
 
   # network
-  "iwd",
   "networkmanager",
   "networkmanager-openvpn",
   "wireguard-tools",
@@ -99,7 +98,7 @@ packages = [
   { name = "networkmanager", hooks = { after_install = [
     "bash",
     "-c",
-    "systemctl is-enabled wpa_supplicant &>/dev/null && sudo systemctl disable --now wpa_supplicant; grep -q 'wifi.backend=iwd' /etc/NetworkManager/NetworkManager.conf 2>/dev/null || printf '[device]\nwifi.backend=iwd\n' | sudo tee /etc/NetworkManager/NetworkManager.conf; sudo systemctl enable --now NetworkManager"
+    "systemctl is-enabled wpa_supplicant &>/dev/null && sudo systemctl disable --now wpa_supplicant; grep -q 'wifi.backend=iwd' /etc/NetworkManager/conf.d/iwd.conf 2>/dev/null || printf '[device]\nwifi.backend=iwd\n' | sudo tee /etc/NetworkManager/conf.d/iwd.conf; sudo systemctl enable --now NetworkManager"
   ] } },
 
   # AUR
