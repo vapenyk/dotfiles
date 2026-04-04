@@ -31,7 +31,7 @@ Packages and stow links are refreshed automatically via the `post-merge` hook.
 
 ## pkg `pkg/.local/bin/pkg`
 
-Is a single-file, declarative package manager wrapper. Was inspired by pacdef/metapac. [README](pkg/README.md)
+Is a single-file, declarative package manager wrapper. Was inspired by pacdef/metapac. [README](../pkg/README.md)
 
 ## screensaver `screensaver/.local/bin/screensaver`
 
