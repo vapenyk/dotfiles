@@ -7,6 +7,6 @@ priority = 50
 
 [paru]
 packages = [
-  # AUR
+  "qt6-tools",
   "plasma6-applets-appgrid",
 ]

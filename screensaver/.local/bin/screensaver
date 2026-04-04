@@ -1,11 +1,28 @@
 #!/bin/bash
 LOGO="${XDG_CONFIG_HOME:-$HOME/.config}/screensaver/logo.txt"
-FRAME_RATE=$(wlr-randr 2>/dev/null | grep -oP '\d+(?=\.\d+ Hz \(.*current.*\))' | head -1)
-FRAME_RATE=${FRAME_RATE:-60}
 EXCLUDED_EFFECTS="dev_worm"
 
+# --- Determine refresh rate ---
+# Try wlr-randr (niri/sway/wlroots), then kscreen-doctor (KDE)
+FRAME_RATE=$(wlr-randr 2>/dev/null | grep -oP '\d+(?=\.\d+ Hz \(.*current.*\))' | head -1)
+if [ -z "$FRAME_RATE" ]; then
+    FRAME_RATE=$(kscreen-doctor -o 2>/dev/null | grep -oP '(?<=@)\d+(?=[\.\d]*\*)' | head -1)
+fi
+FRAME_RATE=${FRAME_RATE:-60}
+
+# --- Focus check ---
+# niri: use niri msg
+# KDE/KWin: use qdbus
 screensaver_in_focus() {
-    niri msg focused-window 2>/dev/null | grep -q 'org.screensaver'
+    if pgrep -x niri >/dev/null 2>&1; then
+        niri msg focused-window 2>/dev/null | grep -q 'org.screensaver'
+    else
+        local active_id
+        active_id=$(qdbus org.kde.KWin /KWin activeWindow 2>/dev/null)
+        [ -z "$active_id" ] && return 0  # qdbus unavailable — assume in focus
+        qdbus org.kde.KWin "/org/kde/KWin/Window/$active_id" resourceClass 2>/dev/null \
+            | grep -qi "screensaver"
+    fi
 }
 
 exit_screensaver() {

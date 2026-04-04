@@ -1,9 +1,11 @@
 #!/bin/bash
 pkill -f "foot.*org.screensaver" 2>/dev/null
-dms ipc call lock lock
+loginctl lock-session
 
 (
   sleep 100
-  dms ipc call lock isLocked 2>/dev/null | grep -q "true" || exit 0
+  SESSION_ID="${XDG_SESSION_ID:-$(loginctl | awk -v u="$USER" '$0 ~ u {print $1; exit}')}"
+  loginctl show-session "$SESSION_ID" -p LockedHint 2>/dev/null \
+      | grep -q "LockedHint=yes" || exit 0
   systemctl suspend
 ) &
