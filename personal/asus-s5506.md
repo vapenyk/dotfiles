@@ -2,6 +2,10 @@
 
 add kernel parameter for xe graphics
 
+# scx_loader (via CachyOS Kernel Manager)
+
+Select sched-ext scheduler: "scx_lavd" and set auto
+
 # limine (what i use)
 
 sudo $EDITOR /etc/default/limine
