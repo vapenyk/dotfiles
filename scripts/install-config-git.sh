@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- Git defaults -------------------------------------------------------------
 readonly CFG_DEFAULT_BRANCH="main"
-readonly CFG_DEFAULT_EDITOR="${EDITOR:-micro}"
+readonly CFG_DEFAULT_EDITOR="${EDITOR:-fresh}"
 readonly CFG_ALLOWED_SIGNERS_FILE="$HOME/.ssh/allowed_signers"
 readonly CFG_SSH_KEY_SUFFIX="signingkey"
 

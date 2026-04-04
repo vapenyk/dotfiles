@@ -21,7 +21,7 @@ packages = [
   "lazydocker",
   "tree-sitter-cli",
   "neovim",
-  "micro",
+  "fresh-editor",
   "lua",
   "luarocks",
   "fzf",
