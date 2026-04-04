@@ -12,7 +12,7 @@ niri • dms
 
 ```bash
 git clone https://github.com/vapenyk/dotfiles.git ~/dotfiles
-cd ~/dotfiles && git config core.hooksPath .githooks
+cd ~/dotfiles
 paru -S stow
 stow --no-folding -R base
 stow --no-folding -R pkg
