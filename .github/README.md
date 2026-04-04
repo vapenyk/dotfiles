@@ -11,9 +11,9 @@ niri • dms
 ## install
 
 ```bash
+paru -S stow git 
 git clone https://github.com/vapenyk/dotfiles.git ~/dotfiles
 cd ~/dotfiles
-paru -S stow
 stow --no-folding -R base
 stow --no-folding -R pkg
 ./scripts/install-bashrc-d.sh

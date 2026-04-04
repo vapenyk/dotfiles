@@ -9,8 +9,6 @@ priority = 10
 packages = [
   # cli & core
   "base-devel",
-  "git",
-  "stow",
   "fastfetch",
   "btop",
   "bat",

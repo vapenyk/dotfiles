@@ -1,5 +1,0 @@
-# ~/.config/metapac/config.toml
-enabled_backends = ["arch", "flatpak", "uv"]
-
-[arch]
-package_manager = "paru"
