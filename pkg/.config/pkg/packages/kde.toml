@@ -1,0 +1,12 @@
+# ~/.config/pkg/packages/kde.toml
+
+[group]
+display = "KDE"
+description = "KDE Plasma extras"
+priority = 50
+
+[paru]
+packages = [
+  # AUR
+  "plasma6-applets-appgrid",
+]

@@ -1,0 +1,69 @@
+# ~/.config/pkg/backends.toml
+# ────────────────────────────────────────────────────────────────────────────
+# Defines how each backend works and how to install it when it's missing.
+#
+# Fields:
+#   description           Label shown in `pkg status`
+#   check_cmd             Exit 0 = backend is installed
+#
+# Bootstrap (pick one or combine):
+#   install_self          Direct install command — simple, no fallback
+#   install_self_try      Try this first; if it fails, run install_self_script
+#   install_self_script   Shell script in scripts/ to build/install from AUR
+#   after_install_self    Commands to run once right after backend is installed
+#
+# Package management:
+#   install_pkg           Command prefix; package name is appended automatically
+#   remove_pkg            Command prefix; package name is appended automatically
+#   list_installed        Prints installed package names, one per line
+#   list_strip_version    true if output is "name version" (e.g. uv tool list)
+# ────────────────────────────────────────────────────────────────────────────
+
+[backends.pacman]
+description = "Official Arch repos"
+check_cmd = ["which", "pacman"]
+install_self = []  # always present on Arch
+install_pkg = ["sudo", "pacman", "-S", "--noconfirm", "--needed"]
+remove_pkg = ["sudo", "pacman", "-Rns", "--noconfirm"]
+list_installed = ["pacman", "-Qq"]
+list_strip_version = false
+
+[backends.paru]
+description = "AUR helper (wraps pacman)"
+check_cmd = ["which", "paru"]
+# On CachyOS, paru is in official repos — try that first:
+install_self_try = ["sudo", "pacman", "-S", "--noconfirm", "--needed", "paru"]
+# On stock Arch, paru lives in AUR — build it with our bootstrap script:
+install_self_script = "bootstrap-paru.sh"
+install_pkg = ["paru", "-S", "--noconfirm", "--needed"]
+remove_pkg = ["paru", "-Rns", "--noconfirm"]
+list_installed = ["pacman", "-Qq"]
+list_strip_version = false
+
+[backends.flatpak]
+description = "Flatpak universal packages (Flathub)"
+check_cmd = ["which", "flatpak"]
+install_self = ["sudo", "pacman", "-S", "--noconfirm", "--needed", "flatpak"]
+# Add Flathub remote immediately after flatpak itself is installed:
+after_install_self = [
+  [
+    "flatpak",
+    "remote-add",
+    "--if-not-exists",
+    "flathub",
+    "https://dl.flathub.org/repo/flathub.flatpakrepo"
+  ],
+]
+install_pkg = ["flatpak", "install", "-y", "--noninteractive", "flathub"]
+remove_pkg = ["flatpak", "uninstall", "-y", "--noninteractive"]
+list_installed = ["flatpak", "list", "--app", "--columns=application"]
+list_strip_version = false
+
+[backends.uv]
+description = "Python CLI tools via uv"
+check_cmd = ["which", "uv"]
+install_self = ["sudo", "pacman", "-S", "--noconfirm", "--needed", "uv"]
+install_pkg = ["uv", "tool", "install"]
+remove_pkg = ["uv", "tool", "uninstall"]
+list_installed = ["uv", "tool", "list", "--quiet"]
+list_strip_version = true  # uv prints "package  version" per line

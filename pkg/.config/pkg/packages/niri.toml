@@ -1,0 +1,88 @@
+# ~/.config/pkg/packages/niri.toml
+
+[group]
+display = "Niri"
+description = "niri compositor, DMS shell, display tools"
+priority = 30
+
+[paru]
+packages = [
+  # wayland core
+  { name = "sddm", hooks = { after_install = [
+    "sudo",
+    "systemctl",
+    "enable",
+    "sddm"
+  ] } },
+  "niri-git",
+  "adw-gtk-theme",
+  "gnome-keyring",
+  "noto-fonts",
+  "noto-fonts-emoji",
+  "wlsunset",
+  "xdg-desktop-portal-gnome",
+  "xdg-desktop-portal-gtk",
+  "xwayland-satellite",
+  "brightnessctl",
+  "wlr-randr",
+  "ddcutil",
+  "cliphist",
+  "wtype",
+  { name = "swayidle", hooks = { after_install = [
+    "systemctl",
+    "--user",
+    "add-wants",
+    "niri.service",
+    "swayidle.service"
+  ] } },
+  "xdg-terminal-exec",
+
+  # graphics & multimedia
+  "imagemagick",
+  "ffmpeg",
+  "qt6-multimedia-ffmpeg",
+  "python",
+  "cava",
+  "matugen",
+  "kimageformats",
+
+  # gui apps
+  "nautilus",
+  "nautilus-python",
+  "sushi",
+  "cups-pk-helper",
+
+  # shell / dms-shell deps
+  "noctalia-qs",
+
+  # network (commented out — uncomment if needed)
+  # { name = "iwd", hooks = { after_install = ["sudo", "systemctl", "enable", "--now", "iwd"] } },
+  # { name = "networkmanager", hooks = { after_install = [
+  #   "bash", "-c",
+  #   "systemctl is-enabled wpa_supplicant &>/dev/null && sudo systemctl disable --now wpa_supplicant; grep -q 'wifi.backend=iwd' /etc/NetworkManager/conf.d/iwd.conf 2>/dev/null || printf '[device]\nwifi.backend=iwd\n' | sudo tee /etc/NetworkManager/conf.d/iwd.conf; sudo systemctl enable --now NetworkManager"
+  # ] } },
+  # "networkmanager-openvpn",
+  # "wireguard-tools",
+  # "wireless-regdb",
+  # "nss-mdns",
+  # "dnsutils",
+  # "dnsmasq",
+  # "ethtool",
+
+  # AUR
+  { name = "dms-shell-bin", hooks = { after_install = [
+    "systemctl",
+    "--user",
+    "add-wants",
+    "niri.service",
+    "dms"
+  ] } },
+  { name = "dsearch-bin", hooks = { after_install = [
+    "systemctl",
+    "--user",
+    "enable",
+    "--now",
+    "dsearch.service"
+  ] } },
+  "qt6ct-kde",
+]

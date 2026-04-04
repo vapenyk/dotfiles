@@ -1,0 +1,20 @@
+# ~/.config/pkg/packages/base_apps.toml
+
+[group]
+display = "Base Apps"
+description = "GUI apps: terminal, editor, browser, archive manager"
+priority = 20
+
+[paru]
+packages = [
+  # gui apps
+  "foot",
+  "ghostty",
+  "zed",
+
+  # AUR
+  "peazip-qt-bin",
+  "helium-browser-bin",
+  "jetbrains-toolbox",
+  "visual-studio-code-bin",
+]

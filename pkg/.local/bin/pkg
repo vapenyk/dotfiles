@@ -1,0 +1,1437 @@
+#!/usr/bin/env python3
+"""
+pkg — Declarative package manager for Arch Linux
+=================================================
+Backends: pacman · paru/yay · flatpak · uv
+
+Config layout:
+  ~/.config/pkg/
+  ├── backends.toml          — backend definitions + bootstrap logic
+  ├── packages/              — package groups, one file = one group
+  │   ├── base.toml
+  │   ├── wayland.toml
+  │   ├── apps.toml
+  │   └── flatpak.toml
+  └── scripts/               — lifecycle hook scripts (run every time)
+      ├── before-sync.sh     — runs before any sync
+      ├── after-sync.sh      — runs after sync completes
+      ├── before-flatpak.sh  — runs before flatpak packages
+      ├── after-paru.sh      — runs after paru packages
+      └── bootstrap-paru.sh  — custom backend installer (called as fallback)
+
+Database:
+  ~/.local/share/pkg/installed.db  — SQLite, tracks what WE installed
+
+Usage:
+  pkg init                    — create default config files + example scripts
+  pkg sync                    — install everything
+  pkg sync base wayland       — install only these groups
+  pkg sync --exclude apps     — install all except apps group
+  pkg diff                    — preview changes (read-only)
+  pkg diff wayland            — diff for one group only
+  pkg prune                   — interactive removal of orphaned packages
+  pkg status                  — backend health + package counts
+  pkg list                    — list all installed packages
+  pkg groups                  — list all available groups
+
+Environment overrides:
+  PKG_CONFIG_DIR              — override ~/.config/pkg
+  PKG_DATA_DIR                — override ~/.local/share/pkg
+"""
+
+# =============================================================================
+# SECTION 1 — IMPORTS
+# =============================================================================
+
+import argparse
+import os
+import sqlite3
+import subprocess
+import sys
+import textwrap
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import tomllib
+
+# tomllib ships with Python 3.11+.
+
+
+# =============================================================================
+# SECTION 2 — CONSTANTS & PATHS
+# =============================================================================
+
+VERSION = "0.2.0"
+
+# Paths — can be overridden via environment variables for testing
+CONFIG_DIR = Path(os.environ.get("PKG_CONFIG_DIR", "~/.config/pkg")).expanduser()
+DATA_DIR = Path(os.environ.get("PKG_DATA_DIR", "~/.local/share/pkg")).expanduser()
+
+BACKENDS_FILE = CONFIG_DIR / "backends.toml"
+PACKAGES_DIR = CONFIG_DIR / "packages"
+SCRIPTS_DIR = CONFIG_DIR / "scripts"
+DB_FILE = DATA_DIR / "installed.db"
+
+
+# =============================================================================
+# SECTION 3 — OUTPUT & LOGGING
+# =============================================================================
+# ANSI colors are only used when stdout is a real terminal (not piped).
+
+_USE_COLOR = sys.stdout.isatty()
+
+_GREEN = "\033[32m"
+_YELLOW = "\033[33m"
+_RED = "\033[31m"
+_CYAN = "\033[36m"
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_RESET = "\033[0m"
+
+
+def _c(color: str, text: str) -> str:
+    """Wrap text in an ANSI color (no-op if not a terminal)."""
+    return f"{color}{text}{_RESET}" if _USE_COLOR else text
+
+
+def print_section(title: str):
+    print(f"\n{_c(_BOLD, title)}")
+    print(_c(_CYAN, "─" * 50))
+
+
+def print_info(msg: str):
+    print(f"  {_c(_CYAN, '→')} {msg}")
+
+
+def print_ok(msg: str):
+    print(f"  {_c(_GREEN, '✓')} {msg}")
+
+
+def print_warn(msg: str):
+    print(f"  {_c(_YELLOW, '!')} {msg}")
+
+
+def print_err(msg: str):
+    print(f"  {_c(_RED, '✗')} {msg}", file=sys.stderr)
+
+
+def print_add(backend: str, name: str):
+    print(f"  {_c(_GREEN, '+')} [{backend}] {name}")
+
+
+def print_remove(backend: str, name: str):
+    print(f"  {_c(_RED, '-')} [{backend}] {name}")
+
+
+def ask_yes_no(question: str) -> bool:
+    """Prompt for y/N. Returns True only if user explicitly says yes."""
+    try:
+        answer = input(f"  {question} [y/N] ").strip().lower()
+        return answer in ("y", "yes")
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return False
+
+
+# =============================================================================
+# SECTION 4 — DATABASE LAYER
+# =============================================================================
+# SQLite database that tracks what WE installed.
+# This is the source of truth for `prune` — we never remove packages
+# that the user installed manually outside of pkg.
+
+
+def db_connect() -> sqlite3.Connection:
+    """Open or create the SQLite database. Creates DATA_DIR if needed."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def db_init():
+    """
+    Create the database schema on first run.
+    Safe to call every startup — uses IF NOT EXISTS.
+    """
+    with db_connect() as conn:
+        _ = conn.execute("""
+            CREATE TABLE IF NOT EXISTS installed (
+                backend      TEXT NOT NULL,
+                package      TEXT NOT NULL,
+                group_name   TEXT NOT NULL DEFAULT '',
+                installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (backend, package)
+            )
+        """)
+        # Migration: add group_name column if upgrading from v0.1
+        try:
+            _ = conn.execute(
+                "ALTER TABLE installed ADD COLUMN group_name TEXT NOT NULL DEFAULT ''"
+            )
+        except sqlite3.OperationalError:
+            pass  # column already exists — that's fine
+        conn.commit()
+
+
+def db_mark_installed(backend: str, package: str, group_name: str = ""):
+    """Record that we successfully installed this package."""
+    with db_connect() as conn:
+        _ = conn.execute(
+            """
+            INSERT INTO installed (backend, package, group_name, installed_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (backend, package) DO NOTHING
+            """,
+            (backend, package, group_name, datetime.now().isoformat()),
+        )
+        conn.commit()
+
+
+def db_mark_removed(backend: str, package: str):
+    """Remove a package from our tracking database."""
+    with db_connect() as conn:
+        _ = conn.execute(
+            "DELETE FROM installed WHERE backend = ? AND package = ?",
+            (backend, package),
+        )
+        conn.commit()
+
+
+def db_get_all() -> set[tuple[str, str]]:
+    """Return every (backend, package) pair we have ever installed."""
+    with db_connect() as conn:
+        rows = conn.execute("SELECT backend, package FROM installed").fetchall()
+    return {(row["backend"], row["package"]) for row in rows}
+
+
+def db_get_by_backend(backend: str) -> set[str]:
+    """Return all package names we installed via a specific backend."""
+    with db_connect() as conn:
+        rows = conn.execute(
+            "SELECT package FROM installed WHERE backend = ?",
+            (backend,),
+        ).fetchall()
+    return {row["package"] for row in rows}
+
+
+def db_get_by_groups(group_names: list[str]) -> set[tuple[str, str]]:
+    """Return (backend, package) pairs that belong to specific groups."""
+    placeholders = ",".join("?" * len(group_names))
+    with db_connect() as conn:
+        rows = conn.execute(
+            f"SELECT backend, package FROM installed WHERE group_name IN ({placeholders})",
+            group_names,
+        ).fetchall()
+    return {(row["backend"], row["package"]) for row in rows}
+
+
+# =============================================================================
+# SECTION 5 — CONFIG PARSING
+# =============================================================================
+# Reads TOML files and returns normalized Python structures.
+# All file I/O is isolated here — the rest of the code works with plain dicts.
+
+
+def _load_toml_file(path: Path) -> dict[str, Any]:
+    """
+    Load a TOML file and return its contents as a dict.
+    Returns empty dict if file doesn't exist.
+    Exits with a clear error on syntax problems.
+    """
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        print_err(f"TOML syntax error in {path}:")
+        print_err(f"  {e}")
+        sys.exit(1)
+
+
+def load_backends_config() -> dict[str, dict[str, Any]]:
+    """
+    Load backends.toml and return backend definitions.
+
+    Expected shape per backend:
+
+        [backends.paru]
+        description          = "AUR helper"
+        check_cmd            = ["which", "paru"]
+
+        # Bootstrap strategies — combined automatically:
+        install_self_try     = ["sudo", "pacman", "-S", "--noconfirm", "paru"]
+        install_self_script  = "bootstrap-paru.sh"   # script in scripts/ dir
+        install_self         = [...]    # legacy: direct command, no fallback
+
+        after_install_self   = [["flatpak", "remote-add", ...]]
+
+        install_pkg          = ["paru", "-S", "--noconfirm", "--needed"]
+        remove_pkg           = ["paru", "-Rns", "--noconfirm"]
+        list_installed       = ["pacman", "-Qq"]
+        list_strip_version   = false
+    """
+    if not BACKENDS_FILE.exists():
+        print_err(f"backends.toml not found: {BACKENDS_FILE}")
+        print_err("Run 'pkg init' to create a default config.")
+        sys.exit(1)
+
+    raw = _load_toml_file(BACKENDS_FILE)
+    backends = raw.get("backends", {})
+
+    if not backends:
+        print_err(f"No [backends.*] sections found in {BACKENDS_FILE}")
+        sys.exit(1)
+
+    return backends
+
+
+# ── Group / package loading ───────────────────────────────────────────────────
+
+
+class Group:
+    """
+    Represents one packages/*.toml file.
+
+    Attributes:
+        name        — file stem, used as group identifier (e.g. "wayland")
+        display     — human label from [group] section, defaults to name
+        description — optional description string
+        priority    — install order (lower = first); default 50
+        packages    — dict of {backend_name: [pkg_dict, ...]}
+    """
+
+    name: str
+    display: str
+    description: str
+    priority: int
+    packages: dict[str, list[dict[str, Any]]]
+
+    def __init__(
+        self,
+        name: str,
+        display: str,
+        description: str,
+        priority: int,
+        packages: dict[str, list[dict[str, Any]]],
+    ):
+        self.name = name
+        self.display = display
+        self.description = description
+        self.priority = priority
+        self.packages = packages
+
+    def total_packages(self) -> int:
+        return sum(len(v) for v in self.packages.values())
+
+
+def _normalize_package_entry(entry: "str | dict[str, Any]", source: str) -> "dict[str, Any] | None":
+    """
+    Normalize one package entry from TOML into a canonical dict.
+
+    Input forms:
+      "git"                                         → simple string
+      { name = "sddm", hooks = { after_install = [...] } }   → table with hooks
+
+    Output: {"name": "git", "hooks": {}}
+    Returns None if the entry is malformed (logs a warning).
+    """
+    if isinstance(entry, str):
+        return {"name": entry, "hooks": {}}
+
+    if isinstance(entry, dict):  # type: ignore[reportUnnecessaryIsInstance]
+        if "name" not in entry:
+            print_warn(f"Package entry missing 'name' in {source}: {entry}")
+            return None
+        return {
+            "name": entry["name"],
+            "hooks": entry.get("hooks", {}),
+        }
+
+    print_warn(f"Unknown package entry type in {source}: {entry!r}")
+    return None
+
+
+def load_all_groups() -> list[Group]:
+    """
+    Read every *.toml file from packages/ and return a sorted list of Groups.
+    Sorted by priority (ascending), then alphabetically for stable ordering.
+
+    Optional [group] metadata in each toml file:
+
+        [group]
+        display     = "Wayland Stack"
+        description = "niri compositor, DMS shell, display tools"
+        priority    = 10   # lower = installed before other groups; default = 50
+    """
+    if not PACKAGES_DIR.exists():
+        print_err(f"Packages directory not found: {PACKAGES_DIR}")
+        print_err("Run 'pkg init' to create the default structure.")
+        sys.exit(1)
+
+    groups: list[Group] = []
+
+    for toml_file in sorted(PACKAGES_DIR.glob("*.toml")):
+        raw = _load_toml_file(toml_file)
+        group_meta = raw.get("group", {})
+        group_name = toml_file.stem  # "wayland.toml" → "wayland"
+
+        packages: dict[str, list[dict[str, Any]]] = {}
+        for section_key, section_data in raw.items():
+            if section_key == "group":
+                continue  # metadata — not a backend section
+            if not isinstance(section_data, dict):
+                continue
+            for entry in section_data.get("packages", []):
+                pkg = _normalize_package_entry(entry, toml_file.name)
+                if pkg is not None:
+                    packages.setdefault(section_key, []).append(pkg)
+
+        groups.append(
+            Group(
+                name=group_name,
+                display=group_meta.get("display", group_name),
+                description=group_meta.get("description", ""),
+                priority=group_meta.get("priority", 50),
+                packages=packages,
+            )
+        )
+
+    groups.sort(key=lambda g: (g.priority, g.name))
+    return groups
+
+
+def filter_groups(
+    all_groups: list[Group],
+    include: "list[str] | None",
+    exclude: "list[str] | None",
+) -> list[Group]:
+    """
+    Filter the group list based on CLI include/exclude arguments.
+    include: if given, only groups with these names are kept.
+    exclude: groups with these names are dropped (applied after include).
+    """
+    result = all_groups
+
+    if include:
+        known = {g.name for g in all_groups}
+        for name in include:
+            if name not in known:
+                print_warn(
+                    f"Unknown group '{name}'. Available: {', '.join(sorted(known))}"
+                )
+        result = [g for g in result if g.name in include]
+
+    if exclude:
+        result = [g for g in result if g.name not in (exclude or [])]
+
+    return result
+
+
+# =============================================================================
+# SECTION 6 — BACKEND OPERATIONS
+# =============================================================================
+
+
+def run(
+    cmd: list[str],
+    *,
+    capture: bool = False,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """
+    Execute an external command.
+
+    capture=False (default): output goes straight to terminal — good for installs.
+    capture=True:            output is captured and returned — good for list queries.
+    check=True (default):    raises CalledProcessError on non-zero exit.
+    check=False:             caller handles returncode themselves.
+    """
+    if capture:
+        return subprocess.run(cmd, capture_output=True, text=True, check=check)
+    return subprocess.run(cmd, text=True, check=check)
+
+
+def backend_is_available(config: dict[str, Any]) -> bool:
+    """Return True if the backend binary is present on the system."""
+    check_cmd = config.get("check_cmd", [])
+    if not check_cmd:
+        return True  # no check needed (pacman is always present on Arch)
+    return run(check_cmd, capture=True, check=False).returncode == 0
+
+
+def backend_list_system_packages(name: str, config: dict[str, Any]) -> set[str]:
+    """
+    Query the backend for its currently installed packages.
+    Returns a set of package name strings.
+
+    If list_strip_version = true, strips the version from lines like:
+      "terminaltexteffects 0.11.0" → "terminaltexteffects"
+    (needed for `uv tool list` output format)
+    """
+    list_cmd = config.get("list_installed", [])
+    if not list_cmd:
+        return set()  # backend doesn't support listing — skip live check
+
+    result = run(list_cmd, capture=True, check=False)
+    if result.returncode != 0:
+        return set()
+
+    strip = config.get("list_strip_version", False)
+    packages: set[str] = set()
+
+    for line in result.stdout.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if strip:
+            line = line.split()[0]
+        packages.add(line)
+
+    return packages
+
+
+def backend_ensure_ready(name: str, config: dict[str, Any]):
+    """
+    Guarantee the backend binary is installed before we try to use it.
+    This is the core fix over metapac — we never call a backend that isn't there.
+
+    Bootstrap order:
+      1. install_self_try   — run this (usually pacman -S pkg_name)
+                              succeeds? done.
+                              fails?    fall through to step 2.
+      2. install_self_script — run scripts/<name>.sh to install from AUR/custom source
+      3. install_self        — legacy: direct command with no fallback
+      (if none configured → print clear error and exit)
+
+    After any successful install, after_install_self hooks are executed.
+    Example: add Flathub remote right after flatpak is installed.
+    """
+    if backend_is_available(config):
+        return  # already there — nothing to do
+
+    installed_ok = False
+
+    # ── Strategy A: try a command, fall back to script on failure ────────────
+    try_cmd = config.get("install_self_try", [])
+    if try_cmd:
+        print_info(f"Backend '{name}' missing — trying: {' '.join(try_cmd)}")
+        result = run(try_cmd, check=False)
+        if result.returncode == 0:
+            installed_ok = True
+        else:
+            print_warn(
+                "  Command failed (package may not be in official repos). "
+                + "Trying script fallback..."
+            )
+
+    # ── Strategy B: custom script (AUR-only or complex bootstrap) ────────────
+    if not installed_ok:
+        script_name = config.get("install_self_script", "")
+        if script_name:
+            script_path = SCRIPTS_DIR / script_name
+            if not script_path.exists():
+                print_err(f"Bootstrap script not found: {script_path}")
+                print_err(
+                    f"Create it to install '{name}' from AUR. "
+                    + f"Run 'pkg init' to see an example."
+                )
+                sys.exit(1)
+            if not os.access(script_path, os.X_OK):
+                print_err(f"Bootstrap script is not executable: {script_path}")
+                print_err(f"Fix with: chmod +x {script_path}")
+                sys.exit(1)
+            print_info(f"  Running bootstrap script: {script_name}")
+            _ = run([str(script_path)])
+            installed_ok = True
+
+    # ── Strategy C: legacy direct install_self command ────────────────────────
+    if not installed_ok:
+        install_self = config.get("install_self", [])
+        if install_self:
+            print_info(f"  Installing: {' '.join(install_self)}")
+            _ = run(install_self)
+            installed_ok = True
+
+    if not installed_ok:
+        print_err(
+            f"Backend '{name}' is not installed and no install method is configured."
+        )
+        print_err(
+            f"Add 'install_self', 'install_self_try', or 'install_self_script' "
+            + f"to [backends.{name}] in backends.toml"
+        )
+        sys.exit(1)
+
+    # ── Post-install hooks (run once after installing the backend) ────────────
+    for hook in config.get("after_install_self", []):
+        print_info(f"  └─ hook: {' '.join(hook)}")
+        _ = run(hook, check=False)  # best-effort
+
+    print_ok(f"Backend '{name}' is ready")
+
+
+def backend_install_package(
+    backend_name: str,
+    config: dict[str, Any],
+    pkg: dict[str, Any],
+    group_name: str = "",
+):
+    """
+    Install one package and record it in the database.
+    Runs the package's after_install hook on success (e.g. enable systemd service).
+    """
+    pkg_name = pkg["name"]
+    install_cmd = config.get("install_pkg", [])
+
+    if not install_cmd:
+        print_warn(f"[{backend_name}] No install_pkg configured — skipping {pkg_name}")
+        return
+
+    print_info(f"[{backend_name}] {pkg_name}")
+    _ = run([*install_cmd, pkg_name])
+
+    db_mark_installed(backend_name, pkg_name, group_name)
+
+    # Package-level after_install hook (e.g. enable sddm, add-wants for swayidle)
+    after_hook = pkg.get("hooks", {}).get("after_install", [])
+    if after_hook:
+        print_info(f"  └─ hook: {' '.join(after_hook)}")
+        _ = run(after_hook, check=False)
+
+
+def backend_remove_package(name: str, config: dict[str, Any], pkg_name: str):
+    """Remove one package via this backend and remove it from the database."""
+    remove_cmd = config.get("remove_pkg", [])
+
+    if not remove_cmd:
+        print_warn(f"[{name}] No remove_pkg configured — cannot remove {pkg_name}")
+        return
+
+    _ = run([*remove_cmd, pkg_name])
+    db_mark_removed(name, pkg_name)
+    print_ok(f"[{name}] {pkg_name} removed")
+
+
+# =============================================================================
+# SECTION 7 — LIFECYCLE HOOK SCRIPTS
+# =============================================================================
+# Scripts in ~/.config/pkg/scripts/ run on EVERY matching operation.
+# Unlike package hooks (one-time, inline in TOML), these are persistent.
+#
+# Naming convention:
+#   before-sync.sh          runs before any sync starts
+#   after-sync.sh           runs after sync finishes
+#   before-{backend}.sh     runs before installing packages for that backend
+#   after-{backend}.sh      runs after all packages for that backend are done
+#
+# Environment variables available inside scripts:
+#   PKG_EVENT               event name, e.g. "before-sync", "after-flatpak"
+#   PKG_CONFIG_DIR          path to config directory
+#   PKG_DATA_DIR            path to data directory
+#
+# Default behavior on failure: print warning, continue (best-effort).
+# Use --strict-hooks in sync to abort on any hook failure.
+
+
+def run_hook(event: str, strict: bool = False):
+    """
+    Find scripts/{event}.sh and run it if it exists and is executable.
+
+    event examples: "before-sync", "after-sync", "before-paru", "after-flatpak"
+    strict: if True, a non-zero exit aborts the entire pkg operation.
+    """
+    script_path = SCRIPTS_DIR / f"{event}.sh"
+
+    if not script_path.exists():
+        return  # no hook for this event — totally normal
+
+    if not os.access(script_path, os.X_OK):
+        print_warn(
+            f"Hook '{event}.sh' exists but is not executable. "
+            + f"Fix with: chmod +x {script_path}"
+        )
+        return
+
+    print_info(f"hook: {event}.sh")
+
+    env = os.environ.copy()
+    env["PKG_EVENT"] = event
+    env["PKG_CONFIG_DIR"] = str(CONFIG_DIR)
+    env["PKG_DATA_DIR"] = str(DATA_DIR)
+
+    result = subprocess.run([str(script_path)], env=env, check=False)
+
+    if result.returncode != 0:
+        msg = f"Hook '{event}.sh' exited with code {result.returncode}"
+        if strict:
+            print_err(f"{msg} — aborting (--strict-hooks is on)")
+            sys.exit(result.returncode)
+        else:
+            print_warn(f"{msg} — continuing (add --strict-hooks to abort on failure)")
+
+
+# =============================================================================
+# SECTION 8 — COMMANDS
+# =============================================================================
+
+# ── cmd_sync ──────────────────────────────────────────────────────────────────
+
+
+def cmd_sync(args: argparse.Namespace):
+    """
+    Main sync operation — install everything (or selected groups).
+
+    Full flow:
+      1. Run before-sync.sh hook
+      2. Bootstrap any missing backends
+      3. For each group (in priority order):
+         a. Run before-{backend}.sh hook
+         b. Check live system for what's already installed
+         c. Install missing packages, record in DB
+         d. Run after-{backend}.sh hook
+      4. Run after-sync.sh hook
+    """
+    strict = getattr(args, "strict_hooks", False)
+    backends = load_backends_config()
+
+    all_groups = load_all_groups()
+    include_names = args.groups or None
+    exclude_names = getattr(args, "exclude", None) or []
+    groups = filter_groups(all_groups, include_names, exclude_names)
+
+    if not groups:
+        print_warn("No groups matched. Use 'pkg groups' to see what's available.")
+        return
+
+    run_hook("before-sync", strict=strict)
+
+    # ── Step 1: Bootstrap backends ───────────────────────────────────────────
+    print_section("Step 1 / 2 — Checking backends")
+
+    needed_backends: set[str] = set()
+    for group in groups:
+        needed_backends |= set(group.packages.keys())
+
+    for name, config in backends.items():
+        if name in needed_backends:
+            backend_ensure_ready(name, config)
+
+    # ── Step 2: Install packages ─────────────────────────────────────────────
+    group_label = (
+        f"groups: {', '.join(g.name for g in groups)}"
+        if include_names
+        else "all groups"
+    )
+    print_section(f"Step 2 / 2 — Syncing packages ({group_label})")
+
+    total_installed = 0
+    total_skipped = 0
+
+    for group in groups:
+        for backend_name, pkg_list in group.packages.items():
+            if backend_name not in backends:
+                print_warn(
+                    f"[{group.name}] Backend '{backend_name}' not in backends.toml "
+                    + "— skipping."
+                )
+                continue
+
+            backend_config = backends[backend_name]
+
+            run_hook(f"before-{backend_name}", strict=strict)
+
+            # Live system check — don't rely on DB alone so manual removals
+            # by the user get noticed and re-installed automatically.
+            system_pkgs = backend_list_system_packages(backend_name, backend_config)
+            to_install = [p for p in pkg_list if p["name"] not in system_pkgs]
+
+            if not to_install:
+                print_ok(
+                    f"[{backend_name}] {group.name}: "
+                    + f"all {len(pkg_list)} packages already installed"
+                )
+                for pkg in pkg_list:
+                    db_mark_installed(backend_name, pkg["name"], group.name)
+                total_skipped += len(pkg_list)
+            else:
+                print_info(
+                    f"[{backend_name}] {group.name}: "
+                    + f"installing {len(to_install)} / {len(pkg_list)}"
+                )
+                for pkg in to_install:
+                    try:
+                        backend_install_package(
+                            backend_name, backend_config, pkg, group.name
+                        )
+                        total_installed += 1
+                    except subprocess.CalledProcessError as e:
+                        print_err(
+                            f"Failed to install [{backend_name}] {pkg['name']}: {e}"
+                        )
+                        if not args.skip_errors:
+                            print_err("Use --skip-errors to continue past failures.")
+                            run_hook("after-sync", strict=False)
+                            sys.exit(1)
+
+                for pkg in pkg_list:
+                    if pkg["name"] in system_pkgs:
+                        db_mark_installed(backend_name, pkg["name"], group.name)
+                        total_skipped += 1
+
+            run_hook(f"after-{backend_name}", strict=strict)
+
+    run_hook("after-sync", strict=strict)
+
+    print()
+    print_ok(
+        f"Sync complete — "
+        + f"{_c(_GREEN, str(total_installed))} installed, "
+        + f"{_c(_DIM, str(total_skipped))} already up to date"
+    )
+
+
+# ── cmd_diff ─────────────────────────────────────────────────────────────────
+
+
+def cmd_diff(args: argparse.Namespace):
+    """
+    Show the diff between config and DB. Read-only — no changes to system.
+    Supports the same group filtering as sync.
+    """
+    all_groups = load_all_groups()
+    include_names = args.groups or None
+    exclude_names = getattr(args, "exclude", None) or []
+    groups = filter_groups(all_groups, include_names, exclude_names)
+
+    db_state = db_get_all()
+
+    config_set: set[tuple[str, str]] = set()
+    for group in groups:
+        for backend_name, pkg_list in group.packages.items():
+            for pkg in pkg_list:
+                config_set.add((backend_name, pkg["name"]))
+
+    to_install = sorted(config_set - db_state)
+    # Only show "will prune" when not filtering by group (avoids false positives)
+    to_prune = sorted(db_state - config_set) if not include_names else []
+
+    label = f" [{', '.join(g.name for g in groups)}]" if include_names else ""
+    print_section(f"Package diff{label}")
+
+    if not to_install and not to_prune:
+        print_ok("Everything is in sync. Nothing to do.")
+        return
+
+    if to_install:
+        print(f"\n  {_c(_GREEN, 'Will install:')}")
+        for backend, pkg in to_install:
+            print_add(backend, pkg)
+
+    if to_prune:
+        print(f"\n  {_c(_RED, 'Not in config anymore (run prune to remove):')}")
+        for backend, pkg in to_prune:
+            print_remove(backend, pkg)
+
+    print()
+
+
+# ── cmd_prune ────────────────────────────────────────────────────────────────
+
+
+def cmd_prune(args: argparse.Namespace):
+    """
+    Find packages we installed (per DB) that no longer appear in config.
+    Supports group filtering — limits search to selected groups.
+    Asks interactively before removing each one.
+    """
+    all_groups = load_all_groups()
+    include_names = args.groups or None
+    exclude_names = getattr(args, "exclude", None) or []
+    groups = filter_groups(all_groups, include_names, exclude_names)
+
+    backends = load_backends_config()
+    db_state = db_get_all()
+
+    config_set: set[tuple[str, str]] = set()
+    for group in groups:
+        for backend_name, pkg_list in group.packages.items():
+            for pkg in pkg_list:
+                config_set.add((backend_name, pkg["name"]))
+
+    if include_names:
+        # Scope orphan search to only packages that belong to selected groups
+        scoped_db = db_get_by_groups(include_names)
+        orphans = sorted(scoped_db - config_set)
+    else:
+        orphans = sorted(db_state - config_set)
+
+    label = f" [{', '.join(include_names)}]" if include_names else ""
+    print_section(f"Prune — packages removed from config{label}")
+
+    if not orphans:
+        print_ok("No orphaned packages found.")
+        return
+
+    print(f"\n  {len(orphans)} package(s) installed by pkg but no longer in config:\n")
+    for backend, pkg in orphans:
+        print_remove(backend, pkg)
+    print()
+
+    removed = 0
+    skipped = 0
+
+    for backend_name, pkg_name in orphans:
+        if ask_yes_no(f"Remove [{backend_name}] {pkg_name}?"):
+            if backend_name not in backends:
+                print_warn(
+                    f"Backend '{backend_name}' not in backends.toml — "
+                    + "removing from DB only"
+                )
+                db_mark_removed(backend_name, pkg_name)
+                removed += 1
+                continue
+            try:
+                backend_remove_package(backend_name, backends[backend_name], pkg_name)
+                removed += 1
+            except subprocess.CalledProcessError as e:
+                print_err(f"Failed to remove {pkg_name}: {e}")
+        else:
+            print_info(f"Skipping {pkg_name}")
+            skipped += 1
+
+    print()
+    print_ok(f"Pruned {removed} package(s), skipped {skipped}.")
+
+
+# ── cmd_groups ────────────────────────────────────────────────────────────────
+
+
+def cmd_groups(_args: argparse.Namespace):
+    """List all package groups with their priority, package count, and backends."""
+    all_groups = load_all_groups()
+    print_section("Available groups")
+
+    if not all_groups:
+        print_warn(f"No .toml files found in {PACKAGES_DIR}")
+        return
+
+    for group in all_groups:
+        backends_used = ", ".join(sorted(group.packages.keys()))
+        desc = f"\n    {_c(_DIM, group.description)}" if group.description else ""
+        print(
+            f"\n  {_c(_BOLD, group.name)}"
+            + f"  {_c(_DIM, f'priority={group.priority}')}"
+            + f"  {group.total_packages()} packages"
+            + f"  [{backends_used}]"
+            + f"{desc}"
+        )
+
+    print()
+    names = " ".join(g.name for g in all_groups[:3])
+    print_info(f"Usage:  pkg sync {names}")
+    print_info(f"        pkg sync --exclude {all_groups[-1].name}")
+
+
+# ── cmd_status ────────────────────────────────────────────────────────────────
+
+
+def cmd_status(_args: argparse.Namespace):
+    """Overview: backend health, package install progress, hook scripts, paths."""
+    backends = load_backends_config()
+    db_state = db_get_all()
+
+    print_section("Backends")
+    for name, config in backends.items():
+        available = backend_is_available(config)
+        status = _c(_GREEN, "✓ available") if available else _c(_RED, "✗ missing")
+        desc = config.get("description", "")
+        has_fallback = bool(
+            config.get("install_self_script") or config.get("install_self_try")
+        )
+        fallback = f"  {_c(_DIM, '(smart bootstrap)')}" if has_fallback else ""
+        print(f"  {_c(_BOLD, f'[{name}]'):<30} {status}   {_c(_DIM, desc)}{fallback}")
+
+    print_section("Package groups")
+    all_groups = load_all_groups()
+    for group in all_groups:
+        installed = sum(
+            1
+            for backend, pkgs in group.packages.items()
+            for pkg in pkgs
+            if (backend, pkg["name"]) in db_state
+        )
+        total = group.total_packages()
+        color = _GREEN if installed >= total else _YELLOW
+        print(
+            f"  {_c(_BOLD, group.name):<20} "
+            + f"{_c(color, f'{installed}/{total}'):<6} installed  "
+            + f"priority={group.priority}"
+            + (f"  {_c(_DIM, group.description)}" if group.description else "")
+        )
+
+    print_section("Hook scripts")
+    if SCRIPTS_DIR.exists():
+        scripts = sorted(SCRIPTS_DIR.glob("*.sh"))
+        if scripts:
+            for s in scripts:
+                ok_mark = (
+                    _c(_GREEN, "✓")
+                    if os.access(s, os.X_OK)
+                    else _c(_YELLOW, "✗ not executable")
+                )
+                print(f"  {s.name:<35} {ok_mark}")
+        else:
+            print_info(
+                "No scripts yet (optional — add before-sync.sh, after-sync.sh, ...)"
+            )
+    else:
+        print_info(f"Scripts dir not created yet: {SCRIPTS_DIR}")
+
+    print_section("Paths")
+    print(f"  Config:   {CONFIG_DIR}")
+    print(f"  Packages: {PACKAGES_DIR}")
+    print(f"  Scripts:  {SCRIPTS_DIR}")
+    print(f"  Database: {DB_FILE}")
+
+
+# ── cmd_list ─────────────────────────────────────────────────────────────────
+
+
+def cmd_list(_args: argparse.Namespace):
+    """List everything we've installed, grouped by backend."""
+    db_state = db_get_all()
+    print_section("Installed packages (from database)")
+
+    if not db_state:
+        print_info("No packages tracked yet. Run 'pkg sync' first.")
+        return
+
+    by_backend: dict[str, list[str]] = {}
+    for backend, pkg in sorted(db_state):
+        by_backend.setdefault(backend, []).append(pkg)
+
+    for backend_name, pkgs in by_backend.items():
+        print(f"\n  {_c(_BOLD, backend_name)}  ({len(pkgs)})")
+        for pkg in sorted(pkgs):
+            print(f"    {_c(_GREEN, '•')} {pkg}")
+
+    print()
+    print_info(f"Total: {len(db_state)} packages across {len(by_backend)} backends")
+
+
+# ── cmd_init ─────────────────────────────────────────────────────────────────
+
+
+def cmd_init(args: argparse.Namespace):
+    """
+    Create default config files and example hook scripts.
+    Safe to re-run — won't overwrite existing files unless --force is passed.
+    """
+    print_section("Initializing pkg config")
+
+    for d in [CONFIG_DIR, PACKAGES_DIR, SCRIPTS_DIR, DATA_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
+        print_ok(f"Directory: {d}")
+
+    files: dict[Path, tuple[str, bool]] = {
+        # path → (content, make_executable)
+        BACKENDS_FILE: (_DEFAULT_BACKENDS_TOML, False),
+        PACKAGES_DIR / "base.toml": (_DEFAULT_BASE_TOML, False),
+        PACKAGES_DIR / "flatpak.toml": (_DEFAULT_FLATPAK_TOML, False),
+        SCRIPTS_DIR / "before-sync.sh": (_EXAMPLE_BEFORE_SYNC, True),
+        SCRIPTS_DIR / "after-sync.sh": (_EXAMPLE_AFTER_SYNC, True),
+        SCRIPTS_DIR / "bootstrap-paru.sh": (_EXAMPLE_BOOTSTRAP_PARU, True),
+    }
+
+    for path, (content, executable) in files.items():
+        if path.exists() and not args.force:
+            print_warn(f"Exists (--force to overwrite): {path}")
+        else:
+            _ = path.write_text(content)
+            if executable:
+                path.chmod(0o755)
+            print_ok(f"Created: {path}")
+
+    db_init()
+    print_ok(f"Database: {DB_FILE}")
+
+    print()
+    print_info(f"Edit packages in:  {PACKAGES_DIR}/")
+    print_info(f"Edit backends in:  {BACKENDS_FILE}")
+    print_info(f"Add hooks in:      {SCRIPTS_DIR}/")
+    print_info("Then run:          pkg sync")
+
+
+# =============================================================================
+# SECTION 9 — DEFAULT CONFIG FILE CONTENTS
+# =============================================================================
+# Written to disk by `pkg init`. Kept here so the script stays self-contained.
+
+_DEFAULT_BACKENDS_TOML = """\
+# ~/.config/pkg/backends.toml
+# ────────────────────────────────────────────────────────────────────────────
+# Defines how each backend works and how to install it when it's missing.
+#
+# Fields:
+#   description           Label shown in `pkg status`
+#   check_cmd             Exit 0 = backend is installed
+#
+# Bootstrap (pick one or combine):
+#   install_self          Direct install command — simple, no fallback
+#   install_self_try      Try this first; if it fails, run install_self_script
+#   install_self_script   Shell script in scripts/ to build/install from AUR
+#   after_install_self    Commands to run once right after backend is installed
+#
+# Package management:
+#   install_pkg           Command prefix; package name is appended automatically
+#   remove_pkg            Command prefix; package name is appended automatically
+#   list_installed        Prints installed package names, one per line
+#   list_strip_version    true if output is "name version" (e.g. uv tool list)
+# ────────────────────────────────────────────────────────────────────────────
+
+[backends.pacman]
+description         = "Official Arch repos"
+check_cmd           = ["which", "pacman"]
+install_self        = []      # always present on Arch
+install_pkg         = ["sudo", "pacman", "-S", "--noconfirm", "--needed"]
+remove_pkg          = ["sudo", "pacman", "-Rns", "--noconfirm"]
+list_installed      = ["pacman", "-Qq"]
+list_strip_version  = false
+
+[backends.paru]
+description         = "AUR helper (wraps pacman)"
+check_cmd           = ["which", "paru"]
+# On CachyOS, paru is in official repos — try that first:
+install_self_try    = ["sudo", "pacman", "-S", "--noconfirm", "--needed", "paru"]
+# On stock Arch, paru lives in AUR — build it with our bootstrap script:
+install_self_script = "bootstrap-paru.sh"
+install_pkg         = ["paru", "-S", "--noconfirm", "--needed"]
+remove_pkg          = ["paru", "-Rns", "--noconfirm"]
+list_installed      = ["pacman", "-Qq"]
+list_strip_version  = false
+
+[backends.flatpak]
+description         = "Flatpak universal packages (Flathub)"
+check_cmd           = ["which", "flatpak"]
+install_self        = ["sudo", "pacman", "-S", "--noconfirm", "--needed", "flatpak"]
+# Add Flathub remote immediately after flatpak itself is installed:
+after_install_self  = [
+  ["flatpak", "remote-add", "--if-not-exists", "flathub",
+   "https://dl.flathub.org/repo/flathub.flatpakrepo"],
+]
+install_pkg         = ["flatpak", "install", "-y", "--noninteractive", "flathub"]
+remove_pkg          = ["flatpak", "uninstall", "-y", "--noninteractive"]
+list_installed      = ["flatpak", "list", "--app", "--columns=application"]
+list_strip_version  = false
+
+[backends.uv]
+description         = "Python CLI tools via uv"
+check_cmd           = ["which", "uv"]
+install_self        = ["sudo", "pacman", "-S", "--noconfirm", "--needed", "uv"]
+install_pkg         = ["uv", "tool", "install"]
+remove_pkg          = ["uv", "tool", "uninstall"]
+list_installed      = ["uv", "tool", "list", "--quiet"]
+list_strip_version  = true    # uv prints "package  version" per line
+"""
+
+_DEFAULT_BASE_TOML = """\
+# ~/.config/pkg/packages/base.toml
+# Core CLI tools and shell utilities.
+
+[group]
+display     = "Base system"
+description = "CLI tools, editors, shell utilities"
+priority    = 10    # installed first — other groups may depend on these
+
+[pacman]
+packages = [
+  "base-devel",
+  "git",
+  "stow",
+  "starship",
+  "fastfetch",
+  "btop",
+  "bat",
+  "fzf",
+  "ripgrep",
+  "fd",
+  "tree",
+  "zellij",
+  "lazygit",
+  "neovim",
+  "micro",
+  "nano",
+  "nano-syntax-highlighting",
+  "shellcheck",
+  "python",
+  "lua",
+  "luarocks",
+  "mise",
+  "rbw",
+  "libyaml",
+  "uv",
+]
+
+[paru]
+packages = [
+  "maplemono-nf-unhinted",
+]
+
+[uv]
+packages = [
+  "terminaltexteffects",
+]
+"""
+
+_DEFAULT_FLATPAK_TOML = """\
+# ~/.config/pkg/packages/flatpak.toml
+# Flatpak apps from Flathub.
+# The flatpak backend and Flathub remote are bootstrapped automatically.
+
+[group]
+display     = "Flatpak apps"
+description = "GUI apps from Flathub"
+priority    = 40    # after system packages
+
+[flatpak]
+packages = [
+  "org.telegram.desktop",
+  "dev.vencord.Vesktop",
+  "io.anytype.anytype",
+  "md.obsidian.Obsidian",
+  "com.protonvpn.www",
+  "it.mijorus.gearlever",
+  "com.github.tchx84.Flatseal",
+  "io.github.flattool.Warehouse",
+  "io.github.kolunmi.Bazaar",
+  "io.github.flattool.Ignition",
+  "io.github.plrigaux.sysd-manager",
+  "org.gtk.Gtk3theme.adw-gtk3-dark",
+]
+"""
+
+# ── Example hook scripts ───────────────────────────────────────────────────────
+
+_EXAMPLE_BEFORE_SYNC = """\
+#!/usr/bin/env bash
+# ~/.config/pkg/scripts/before-sync.sh
+# Runs before EVERY `pkg sync`. Edit freely — runs each time, not just once.
+#
+# Available env vars:
+#   PKG_EVENT       = "before-sync"
+#   PKG_CONFIG_DIR  = path to ~/.config/pkg
+#   PKG_DATA_DIR    = path to ~/.local/share/pkg
+set -euo pipefail
+
+echo "[pkg hook] before-sync — $(date '+%Y-%m-%d %H:%M')"
+
+# Uncomment to pull dotfiles before installing new packages:
+# cd ~/dotfiles && git pull --ff-only
+
+# Uncomment to check for pending system updates first:
+# checkupdates || true
+"""
+
+_EXAMPLE_AFTER_SYNC = """\
+#!/usr/bin/env bash
+# ~/.config/pkg/scripts/after-sync.sh
+# Runs after EVERY `pkg sync`. Edit freely — runs each time, not just once.
+#
+# Available env vars:
+#   PKG_EVENT       = "after-sync"
+#   PKG_CONFIG_DIR  = path to ~/.config/pkg
+#   PKG_DATA_DIR    = path to ~/.local/share/pkg
+set -euo pipefail
+
+echo "[pkg hook] after-sync — $(date '+%Y-%m-%d %H:%M')"
+
+# Uncomment to apply dotfiles via stow after all packages are in place:
+# cd ~/dotfiles && stow --restow --ignore='.git' .
+
+# Uncomment for a desktop notification when sync finishes:
+# notify-send "pkg sync" "All packages installed" --icon=package-x-generic
+"""
+
+_EXAMPLE_BOOTSTRAP_PARU = """\
+#!/usr/bin/env bash
+# ~/.config/pkg/scripts/bootstrap-paru.sh
+# Called automatically when paru is not in official repos.
+# Builds paru from AUR using only base-devel (always available on Arch).
+set -euo pipefail
+
+echo "[pkg bootstrap] Building paru from AUR..."
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+git clone --depth=1 https://aur.archlinux.org/paru.git "$tmpdir"
+cd "$tmpdir"
+makepkg -si --noconfirm
+
+echo "[pkg bootstrap] paru installed successfully"
+"""
+
+
+# =============================================================================
+# SECTION 10 — CLI & ARGUMENT PARSING
+# =============================================================================
+
+
+def _add_group_args(parser: argparse.ArgumentParser):
+    """Add group filtering arguments to a subcommand (sync, diff, prune)."""
+    _ = parser.add_argument(
+        "groups",
+        nargs="*",
+        metavar="GROUP",
+        help=(
+            "Process only these groups (e.g. 'base wayland'). "
+            "Omit to process all groups. See 'pkg groups' for available names."
+        ),
+    )
+    _ = parser.add_argument(
+        "--exclude",
+        "-x",
+        nargs="+",
+        metavar="GROUP",
+        help="Exclude specific groups (combinable with positional group filter)",
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="pkg",
+        description="Declarative package manager for Arch Linux",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Quick start:
+              pkg init                    create default config files
+              pkg sync                    install everything in config
+              pkg groups                  list available groups
+
+            Group filtering (works in sync, diff, prune):
+              pkg sync base wayland       install only base + wayland groups
+              pkg sync --exclude apps     install all except apps
+              pkg diff flatpak            preview flatpak group only
+
+            Hook scripts (in ~/.config/pkg/scripts/):
+              before-sync.sh              runs before every sync
+              after-sync.sh               runs after every sync
+              before-{backend}.sh         runs before each backend batch
+              after-{backend}.sh          runs after each backend batch
+
+            Config:    ~/.config/pkg/
+            Database:  ~/.local/share/pkg/installed.db
+
+            Override paths with env vars:
+              PKG_CONFIG_DIR, PKG_DATA_DIR
+        """),
+    )
+    _ = parser.add_argument("--version", action="version", version=f"pkg {VERSION}")
+
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    # init
+    p = sub.add_parser("init", help="Create default config files + example scripts")
+    _ = p.add_argument("--force", action="store_true", help="Overwrite existing files")
+    p.set_defaults(func=cmd_init)
+
+    # sync
+    p = sub.add_parser(
+        "sync",
+        help="Install packages from config",
+        description=textwrap.dedent("""\
+            Install everything defined in packages/*.toml.
+            Groups are processed in priority order ([group] priority = N).
+            Lifecycle hook scripts in scripts/ are executed automatically.
+        """),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_group_args(p)
+    _ = p.add_argument(
+        "--skip-errors",
+        action="store_true",
+        help="Continue to next package if one fails to install",
+    )
+    _ = p.add_argument(
+        "--strict-hooks",
+        action="store_true",
+        help="Abort if any hook script exits non-zero (default: warn and continue)",
+    )
+    p.set_defaults(func=cmd_sync)
+
+    # diff
+    p = sub.add_parser(
+        "diff",
+        help="Preview changes without touching anything (read-only)",
+        description="Compare config files against the database. Makes no changes.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_group_args(p)
+    p.set_defaults(func=cmd_diff)
+
+    # prune
+    p = sub.add_parser(
+        "prune",
+        help="Remove packages no longer in config (interactive)",
+        description=textwrap.dedent("""\
+            Find packages installed by pkg that have been removed from config.
+            Asks interactively before removing each one.
+            Packages installed manually (outside pkg) are never touched.
+        """),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_group_args(p)
+    p.set_defaults(func=cmd_prune)
+
+    # groups
+    p = sub.add_parser(
+        "groups",
+        help="List available package groups with priority and package counts",
+    )
+    p.set_defaults(func=cmd_groups)
+
+    # status
+    p = sub.add_parser(
+        "status",
+        help="Show backend availability, package progress, and hook scripts",
+    )
+    p.set_defaults(func=cmd_status)
+
+    # list
+    p = sub.add_parser(
+        "list",
+        help="List all packages tracked in the database",
+    )
+    p.set_defaults(func=cmd_list)
+
+    return parser
+
+
+# =============================================================================
+# SECTION 11 — ENTRY POINT
+# =============================================================================
+
+
+def main():
+    db_init()  # ensure schema exists before any command touches the DB
+
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    if not hasattr(args, "func"):
+        parser.print_help()
+        sys.exit(0)
+
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        print()
+        print_warn("Interrupted.")
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    main()

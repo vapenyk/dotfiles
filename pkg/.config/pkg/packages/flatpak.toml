@@ -1,0 +1,24 @@
+# ~/.config/pkg/packages/flatpak.toml
+# flatpak itself + Flathub remote are bootstrapped automatically via backends.toml.
+# The openh264 mask runs once via scripts/after-flatpak.sh.
+
+[group]
+display = "Flatpak"
+description = "GUI apps from Flathub"
+priority = 40
+
+[flatpak]
+packages = [
+  "org.telegram.desktop",
+  "dev.vencord.Vesktop",
+  "io.anytype.anytype",
+  "md.obsidian.Obsidian",
+  "com.protonvpn.www",
+  "it.mijorus.gearlever",
+  "com.github.tchx84.Flatseal",
+  "io.github.flattool.Warehouse",
+  "io.github.kolunmi.Bazaar",
+  "io.github.flattool.Ignition",
+  "io.github.plrigaux.sysd-manager",
+  # "org.gtk.Gtk3theme.adw-gtk3-dark",
+]

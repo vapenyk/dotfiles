@@ -1,0 +1,13 @@
+[arch]
+packages = [
+  # gui apps
+  "foot",
+  "ghostty",
+  "zed",
+
+  # AUR
+  "peazip-qt-bin",
+  "helium-browser-bin",
+  "jetbrains-toolbox",
+  "visual-studio-code-bin",
+]
