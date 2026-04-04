@@ -129,14 +129,17 @@ pkg sync --strict-hooks           # abort if any hook script fails
 
 1. Runs `before-sync.sh` hook (if it exists)
 2. Checks which backends are needed and bootstraps any that are missing
-3. For each group in priority order:
-   - Runs `before-{backend}.sh` hook
+3. Runs `before-{backend}.sh` once for each backend that has packages to install
+4. For each group in priority order, for each backend:
    - Queries the live system for currently installed packages
+   - Runs any per-package `before_install` hooks
    - Installs anything missing, records each install in the database
    - Runs any per-package `after_install` hooks
-   - Runs `after-{backend}.sh` hook
-4. Runs `after-sync.sh` hook
-5. Prints a summary: N installed, M already up to date
+5. Runs `after-{backend}.sh` once for each backend, after all groups are processed
+6. Runs `after-sync.sh` hook
+7. Prints a summary: N installed, M already up to date
+
+`before-{backend}.sh` and `after-{backend}.sh` each fire **once per backend per sync**, regardless of how many groups use that backend.
 
 **Flags:**
 
@@ -329,7 +332,7 @@ list_strip_version  = false
 **Bootstrap priority.** When a backend is missing, `pkg` tries strategies in this order:
 
 1. `install_self_try` — runs the command, on success stops here
-2. `install_self_script` — runs `scripts/<name>.sh` (only if step 1 failed)
+2. `install_self_script` — runs `scripts/<n>.sh` (only if step 1 failed)
 3. `install_self` — legacy direct command, no fallback
 
 You can use `install_self_try` + `install_self_script` together (the recommended pattern for paru), or just `install_self` alone (simpler, for backends always available in official repos).
@@ -388,20 +391,32 @@ packages = [
 ]
 ```
 
-**Extended form** — with an `after_install` hook:
+**Extended form** — with `before_install` and/or `after_install` hooks:
 
 ```toml
 [pacman]
 packages = [
   "git",
   { name = "sddm", hooks = { after_install = ["sudo", "systemctl", "enable", "sddm"] } },
-  { name = "swayidle", hooks = { after_install = ["systemctl", "--user", "enable", "swayidle"] } },
+  { name = "swayidle", hooks = {
+      before_install = ["echo", "preparing swayidle..."],
+      after_install  = ["systemctl", "--user", "enable", "swayidle"],
+  } },
 ]
 ```
 
-The `after_install` hook runs once, immediately after the package is installed. It is a best-effort operation — a non-zero exit from the hook is logged but does not stop the sync. Both forms can be mixed freely in the same list.
+**Available per-package hooks:**
 
-**Note:** per-package hooks run only once, at install time. For operations that should run on every sync, use [hook scripts](#hook-scripts) instead.
+| Hook | When it runs |
+|------|-------------|
+| `before_install` | Immediately before the package is installed |
+| `after_install` | Immediately after the package is installed and recorded in the database |
+
+Both hooks are best-effort — a non-zero exit is logged but does not stop the sync. Both fire only once, at install time. On subsequent `pkg sync` runs, if the package is already installed, neither hook fires again.
+
+Both forms can be mixed freely in the same list.
+
+**Note:** per-package hooks run only at install time. For operations that should run on every sync (pulling dotfiles, enabling services unconditionally, etc.), use [hook scripts](#hook-scripts) instead.
 
 ---
 
@@ -415,10 +430,12 @@ Scripts in `~/.config/pkg/scripts/` are executed on every matching `pkg sync`. T
 |-------------|-------------|
 | `before-sync.sh` | Before the entire sync starts |
 | `after-sync.sh` | After the entire sync completes |
-| `before-{backend}.sh` | Before processing each backend's packages (e.g. `before-paru.sh`) |
-| `after-{backend}.sh` | After all packages for a backend are done (e.g. `after-flatpak.sh`) |
+| `before-{backend}.sh` | Once before any packages for that backend are installed (e.g. `before-paru.sh`) |
+| `after-{backend}.sh` | Once after all packages for that backend are done (e.g. `after-flatpak.sh`) |
 
 Scripts must be executable (`chmod +x`). If a script exists but is not executable, `pkg` will print a warning and skip it.
+
+`before-{backend}.sh` and `after-{backend}.sh` fire **once per sync per backend**, not once per group. If you have three groups that all use `paru`, `before-paru.sh` runs once before all of them and `after-paru.sh` runs once after all of them.
 
 **Environment variables** available inside every hook script:
 
@@ -557,7 +574,7 @@ The database is created and migrated automatically on every `pkg` invocation —
 
 ```bash
 # Install pkg itself
-install -Dm755 pkg.py ~/.local/bin/pkg
+install -Dm755 pkg ~/.local/bin/pkg
 
 # Generate defaults, then customize
 pkg init
@@ -586,9 +603,9 @@ pkg sync
 ### Syncing only part of your config
 
 ```bash
-pkg sync wayland          # only the wayland group
+pkg sync wayland            # only the wayland group
 pkg sync --exclude flatpak  # everything except flatpak
-pkg diff base             # preview only base group
+pkg diff base               # preview only base group
 ```
 
 ### Re-installing a package that was manually removed

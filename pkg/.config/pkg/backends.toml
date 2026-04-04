@@ -53,6 +53,7 @@ after_install_self = [
     "flathub",
     "https://dl.flathub.org/repo/flathub.flatpakrepo"
   ],
+  ["sudo", "flatpak", "mask", "org.freedesktop.Platform.openh264"],
 ]
 install_pkg = ["flatpak", "install", "-y", "--noninteractive", "flathub"]
 remove_pkg = ["flatpak", "uninstall", "-y", "--noninteractive"]

@@ -172,6 +172,10 @@ def db_init():
             )
         except sqlite3.OperationalError:
             pass  # column already exists — that's fine
+        # Migration: backfill group_name for rows installed before group tracking
+        _ = conn.execute(
+            "UPDATE installed SET group_name = backend WHERE group_name = ''"
+        )
         conn.commit()
 
 
@@ -182,7 +186,9 @@ def db_mark_installed(backend: str, package: str, group_name: str = ""):
             """
             INSERT INTO installed (backend, package, group_name, installed_at)
             VALUES (?, ?, ?, ?)
-            ON CONFLICT (backend, package) DO NOTHING
+            ON CONFLICT (backend, package) DO UPDATE
+                SET group_name = excluded.group_name
+                WHERE installed.group_name = ''
             """,
             (backend, package, group_name, datetime.now().isoformat()),
         )
@@ -327,7 +333,9 @@ class Group:
         return sum(len(v) for v in self.packages.values())
 
 
-def _normalize_package_entry(entry: "str | dict[str, Any]", source: str) -> "dict[str, Any] | None":
+def _normalize_package_entry(
+    entry: "str | dict[str, Any]", source: str
+) -> "dict[str, Any] | None":
     """
     Normalize one package entry from TOML into a canonical dict.
 
@@ -581,7 +589,7 @@ def backend_install_package(
 ):
     """
     Install one package and record it in the database.
-    Runs the package's after_install hook on success (e.g. enable systemd service).
+    Runs before_install and after_install hooks if defined.
     """
     pkg_name = pkg["name"]
     install_cmd = config.get("install_pkg", [])
@@ -590,12 +598,16 @@ def backend_install_package(
         print_warn(f"[{backend_name}] No install_pkg configured — skipping {pkg_name}")
         return
 
+    before_hook = pkg.get("hooks", {}).get("before_install", [])
+    if before_hook:
+        print_info(f"  └─ hook: {' '.join(before_hook)}")
+        _ = run(before_hook, check=False)
+
     print_info(f"[{backend_name}] {pkg_name}")
     _ = run([*install_cmd, pkg_name])
 
     db_mark_installed(backend_name, pkg_name, group_name)
 
-    # Package-level after_install hook (e.g. enable sddm, add-wants for swayidle)
     after_hook = pkg.get("hooks", {}).get("after_install", [])
     if after_hook:
         print_info(f"  └─ hook: {' '.join(after_hook)}")
@@ -730,6 +742,9 @@ def cmd_sync(args: argparse.Namespace):
     total_installed = 0
     total_skipped = 0
 
+    seen_before: set[str] = set()
+    seen_after: set[str] = set()
+
     for group in groups:
         for backend_name, pkg_list in group.packages.items():
             if backend_name not in backends:
@@ -741,7 +756,9 @@ def cmd_sync(args: argparse.Namespace):
 
             backend_config = backends[backend_name]
 
-            run_hook(f"before-{backend_name}", strict=strict)
+            if backend_name not in seen_before:
+                run_hook(f"before-{backend_name}", strict=strict)
+                seen_before.add(backend_name)
 
             # Live system check — don't rely on DB alone so manual removals
             # by the user get noticed and re-installed automatically.
@@ -773,6 +790,7 @@ def cmd_sync(args: argparse.Namespace):
                         )
                         if not args.skip_errors:
                             print_err("Use --skip-errors to continue past failures.")
+                            run_hook(f"after-{backend_name}", strict=False)
                             run_hook("after-sync", strict=False)
                             sys.exit(1)
 
@@ -781,7 +799,10 @@ def cmd_sync(args: argparse.Namespace):
                         db_mark_installed(backend_name, pkg["name"], group.name)
                         total_skipped += 1
 
+    for backend_name in seen_before:
+        if backend_name not in seen_after:
             run_hook(f"after-{backend_name}", strict=strict)
+            seen_after.add(backend_name)
 
     run_hook("after-sync", strict=strict)
 

@@ -32,7 +32,6 @@ packages = [
   "mise",
   "nano",
   "nano-syntax-highlighting",
-  "paru",
   "openssh",
   "rsync",
   "fsarchiver",
