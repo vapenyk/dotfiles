@@ -7,6 +7,8 @@ priority = 50
 
 [paru]
 packages = [
+  "klassy",
   "qt6-tools",
+  "kde-material-you-colors",
   "plasma6-applets-appgrid",
 ]
