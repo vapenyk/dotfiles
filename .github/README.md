@@ -1,4 +1,4 @@
-# vapenyk dotfiles ✨
+# The dotfiles have been moved to [Codeberg](https://codeberg.org/vapenyk/.dotfiles) 
 
 cachyos - base system
 
